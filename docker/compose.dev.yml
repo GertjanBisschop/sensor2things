@@ -1,0 +1,193 @@
+services:
+  signalk:
+    image: signalk/signalk-server:latest
+    networks:
+      - p2sk
+    volumes:
+      - "../data/signalk:/home/node/.signalk"
+    ports:
+      - "3000:3000"
+    # command: ["--override-timestamps", "--sample-n2k-data"]
+    command: ["--override-timestamps", "--sample-nmea0183-data"]
+    # command:
+    #   [
+    #     "--override-timestamps",
+    #     "--data",
+    #     "/home/node/.signalk/skserver-raw_2026-09-28T07.log",
+    #   ]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/signalk"]
+      interval: 5s
+      timeout: 2s
+      retries: 3
+
+  web:
+    image: fraunhoferiosb/frost-server:latest
+    environment:
+      # For all settings see: https://fraunhoferiosb.github.io/FROST-Server/settings/settings.html
+      - serviceRootUrl=http://localhost:8080/FROST-Server
+      - plugins_modelLoader_enable=true
+      - plugins_multiDatastream_enable=false
+      - plugins_actuation_enable=false
+      - http_cors_enable=true
+      - http_cors_allowed_origins=*
+      - persistence_db_driver=org.postgresql.Driver
+      - persistence_db_url=jdbc:postgresql://database:5432/sensorthings
+      - persistence_db_username=sensorthings
+      - persistence_db_password=ChangeMe
+      - persistence_autoUpdateDatabase=true
+      - persistence_countMode=LIMIT_ESTIMATE
+      # STRING/UUID entity ids need uuid-ossp (installed by the uuid-ossp service):
+      # - plugins_coreModel_idType=STRING
+    networks:
+      - p2st1
+      - st1
+    ports:
+      - 8080:8080
+      - 2883:1883
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/FROST-Server/v1.1"]
+      interval: 5s
+      timeout: 2s
+      retries: 3
+    depends_on:
+      database:
+        condition: service_healthy
+      uuid-ossp:
+        condition: service_completed_successfully
+
+  database:
+    image: postgis/postgis:18-3.6-alpine
+    environment:
+      - POSTGRES_DB=sensorthings
+      - POSTGRES_USER=sensorthings
+      - POSTGRES_PASSWORD=ChangeMe
+    networks:
+      - st1
+    volumes:
+      - st_postgis_vol1:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d sensorthings -U sensorthings "]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+  web2:
+    image: fraunhoferiosb/frost-server:latest
+    environment:
+      # For all settings see: https://fraunhoferiosb.github.io/FROST-Server/settings/settings.html
+      - serviceRootUrl=http://localhost:8081/FROST-Server
+      - plugins_modelLoader_enable=true
+      - plugins_multiDatastream_enable=false
+      - plugins_actuation_enable=false
+      - http_cors_enable=true
+      - http_cors_allowed_origins=*
+      - persistence_db_driver=org.postgresql.Driver
+      - persistence_db_url=jdbc:postgresql://database2:5432/sensorthings
+      - persistence_db_username=sensorthings
+      - persistence_db_password=ChangeMe
+      - persistence_autoUpdateDatabase=true
+      - persistence_countMode=LIMIT_ESTIMATE
+      # STRING/UUID entity ids need uuid-ossp (installed by the uuid-ossp service):
+      # - plugins_coreModel_idType=STRING
+    networks:
+      - p2st2
+      - st2
+    ports:
+      - 8081:8080
+      - 3883:1883
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/FROST-Server/v1.1" ]
+      interval: 5s
+      timeout: 2s
+      retries: 3
+    depends_on:
+      database2:
+        condition: service_healthy
+      uuid-ossp:
+        condition: service_completed_successfully
+
+  database2:
+    image: postgis/postgis:18-3.6-alpine
+    environment:
+      - POSTGRES_DB=sensorthings
+      - POSTGRES_USER=sensorthings
+      - POSTGRES_PASSWORD=ChangeMe
+    networks:
+      - st2
+    volumes:
+      - st_postgis_vol2:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -d sensorthings -U sensorthings "]
+      interval: 2s
+      timeout: 2s
+      retries: 10
+
+  # STRING/UUID id types call uuid_generate_v1mc(); create the extension even on
+  # an existing volume (initdb.d scripts only run on first database init).
+  uuid-ossp:
+    image: postgis/postgis:18-3.6-alpine
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      - PGPASSWORD=ChangeMe
+    networks:
+      - st1
+      - st2
+    restart: "no"
+    entrypoint: ["/bin/sh", "-c"]
+    command: '"psql -h database -U sensorthings -d sensorthings -c ''CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";''"'
+
+  pipeline:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    networks:
+      - p2sk
+      - p2st1
+    volumes:
+      - ../config:/config
+    command: ["pipeline", "-c", "/config/sk2st_config.yaml"]
+    depends_on:
+      signalk:
+        condition: service_healthy
+      web:
+        condition: service_healthy
+
+  pipeline2:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    networks:
+      - p2st1
+      - p2st2
+    volumes:
+      - ../config:/config
+      - st_pipeline_vol2:/data
+    command: ["pipeline", "-c", "/config/st2st_config.yaml"]
+    depends_on:
+      web:
+        condition: service_healthy
+      web2:
+        condition: service_healthy
+
+networks:
+  p2sk:
+    name: p2sk
+  p2st1:
+    name: p2st1
+  p2st2:
+    name: p2st2
+  st1:
+    name: st1
+  st2:
+    name: st2
+
+volumes:
+  st_postgis_vol1:
+    name: st_postgis_vol1
+  st_postgis_vol2:
+    name: st_postgis_vol2
+  st_pipeline_vol2:
+    name: st_pipeline_vol2

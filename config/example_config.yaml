@@ -1,0 +1,10 @@
+log_level: info
+source:
+  signalk:
+    username: readonly
+    password: signalk_ro
+convertor:
+  signalk_sensorthings: {}
+sink:
+  sensorthings:
+    host: web

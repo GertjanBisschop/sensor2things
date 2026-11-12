@@ -1,0 +1,24 @@
+[
+  {
+    "context": "vessels.self",
+    "updates": [
+      {
+        "values": [
+          {
+            "path": "",
+            "value": {
+              "name": "USV Gobelijn",
+              "mmsi": "205124000"
+            }
+          },
+          {
+            "path": "design.aisShipType",
+            "value": {
+              "id": 90
+            }
+          }
+        ]
+      }
+    ]
+  }
+]

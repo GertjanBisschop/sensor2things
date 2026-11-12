@@ -1,0 +1,94 @@
+variables:
+  SECRET_DETECTION_ENABLED: "true"
+  UV_CACHE_DIR: "$CI_PROJECT_DIR/.uv-cache"
+
+stages:
+  - linting
+  - static-analysis
+  - test
+  - build
+
+default:
+  tags:
+    - docker
+  image: ghcr.io/astral-sh/uv:python3.14-trixie
+  cache:
+    key:
+      files:
+        - uv.lock
+    paths:
+      - .uv-cache
+
+include:
+  - template: Security/SAST.gitlab-ci.yml
+  - template: Security/Secret-Detection.gitlab-ci.yml
+
+.code-change-patterns: &code-changes
+  - src/**/*
+  - pyproject.toml
+  - uv.lock
+  - pytest.ini
+
+linting:
+  stage: linting
+  rules:
+    - changes: *code-changes
+  script:
+    - uv run ruff check
+    - uv run ruff format --check
+
+static-analysis:
+  stage: static-analysis
+  rules:
+    - changes: *code-changes
+  script:
+    - uv run pyright
+
+test:
+  stage: test
+  rules:
+    - changes: *code-changes
+  script:
+    - uv run pytest --junitxml=report.xml
+  artifacts:
+    when: always
+    reports:
+      junit: report.xml
+
+#integration_test:
+#  stage: test
+#  services:
+#    - docker:dind
+#  variables:
+#    DOCKER_HOST: tcp://docker:2375
+#    DOCKER_TLS_CERTDIR: ""
+#    DOCKER_DRIVER: overlay2
+#    TESTCONTAINERS_HOST_OVERRIDE: "docker"
+#  script:
+#    - uv run pytest -m integration
+
+.docker-build-base:
+  stage: build
+  image: docker:latest
+  services:
+    - docker:dind
+  before_script:
+    - echo "$CI_REGISTRY_PASSWORD" | docker login -u "$CI_REGISTRY_USER" --password-stdin $CI_REGISTRY
+
+docker-build:
+  extends: .docker-build-base
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      changes: *code-changes
+  script:
+    - docker build -f docker/Dockerfile --pull -t "$CI_REGISTRY_IMAGE:latest" .
+    - docker push "$CI_REGISTRY_IMAGE:latest"
+
+docker-build-branch:
+  extends: .docker-build-base
+  rules:
+    - if: $CI_COMMIT_BRANCH != "main"
+      changes: *code-changes
+  script:
+    - docker build -f docker/Dockerfile --pull -t "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG" .
+    - docker push "$CI_REGISTRY_IMAGE:$CI_COMMIT_REF_SLUG"
