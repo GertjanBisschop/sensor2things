@@ -53,6 +53,9 @@ pip-delete-this-directory.txt
 .pyre_cache/
 .pytype_cache/
 
+uv.lock
+.python-version
+
 # =========================
 # Docker-specific ignores
 # =========================
