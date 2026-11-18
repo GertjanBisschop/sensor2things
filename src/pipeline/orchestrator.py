@@ -2,13 +2,17 @@
 
 import asyncio
 import logging
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from pipeline.error import (
     ArtifactNotFoundError,
+    ConvertorError,
     OperationNotSupportedError,
+    SinkConnectorError,
+    SourceConnectorError,
 )
 from pipeline.models import (
+    BaseArtifact,
     BaseConvertor,
     BaseSinkConnector,
     BaseSourceConnector,
@@ -16,7 +20,23 @@ from pipeline.models import (
 )
 from pipeline.registry import CONVERTORS, SINKS, SOURCES
 
-log = logging.getLogger(__name__)
+logger = logging.getLogger(__name__)
+
+
+def _get_artifact_factory[T: BaseArtifact](
+    artifacts: dict[str, type[T]],
+    artifact_config: dict[str, Any],
+    artifact_type: str,
+) -> tuple[type[T], dict]:
+    artifact_names = artifact_config.keys()
+    if len(artifact_names) != 1:
+        raise OperationNotSupportedError(f"Only one artifact of type {artifact_type} is supported.")
+
+    artifact_name = next(iter(artifact_names))
+    if artifact_name not in artifacts:
+        raise ArtifactNotFoundError(f"Artifact {artifact_name} of type {artifact_type} not found.")
+
+    return artifacts[artifact_name], artifact_config[artifact_name]
 
 
 class Orchestrator:
@@ -54,8 +74,7 @@ class Orchestrator:
     async def run(self) -> None:
         """Run the complete pipeline until interrupted or stopped."""
         self._running = True
-        log.info("Starting pipeline Orchestration ...")
-        # await self.initialize_thing()
+        logger.info("Starting pipeline Orchestration ...")
 
         source_task = asyncio.create_task(self.source_connector.run())
         convertor_task = asyncio.create_task(self.convertor.run())
@@ -65,8 +84,15 @@ class Orchestrator:
         try:
             await asyncio.gather(*self._tasks)
         except asyncio.CancelledError:
-            log.info("Pipeline received cancellation signal.")
+            logger.info("Pipeline received cancellation signal.")
+        except SourceConnectorError as e:
+            logger.error(f"Source connector exited: {e}")
+        except SinkConnectorError as e:
+            logger.error(f"Sink connector exited: {e}")
+        except ConvertorError as e:
+            logger.error(f"Convertor exited: {e}")
         finally:
+            logger.info("Pipeline Orchestrator stopping.")
             await self.stop()
 
     async def stop(self) -> None:
@@ -78,40 +104,16 @@ class Orchestrator:
         for task in self._tasks:
             if not task.done():
                 task.cancel()
-        log.info("Pipeline Orchestrator stopped.")
+        logger.info("Pipeline Orchestrator stopped.")
 
     def _get_source_connector_factory(self) -> tuple[type[BaseSourceConnector], dict]:
         """Resolve and return the registered source connector class and its configuration dictionary."""
-        connector_names = self._config.source.keys()
-        if len(connector_names) != 1:
-            raise OperationNotSupportedError("Only one source connector is supported.")
-
-        connector_name = next(iter(connector_names))
-        if connector_name not in self._sources:
-            raise ArtifactNotFoundError(f"Source connector {connector_name} not found.")
-
-        return self._sources[connector_name], self._config.source[connector_name]
+        return _get_artifact_factory(self._sources, self._config.source, "source")
 
     def _get_sink_connector_factory(self) -> tuple[type[BaseSinkConnector], dict]:
         """Resolve and return the registered sink connector class and its configuration dictionary."""
-        connector_names = self._config.sink.keys()
-        if len(connector_names) != 1:
-            raise OperationNotSupportedError("Only one sink connector is supported.")
-
-        connector_name = next(iter(connector_names))
-        if connector_name not in self._sinks:
-            raise ArtifactNotFoundError(f"Sink connector {connector_name} not found.")
-
-        return self._sinks[connector_name], self._config.sink[connector_name]
+        return _get_artifact_factory(self._sinks, self._config.sink, "sink")
 
     def _get_convertor_factory(self) -> tuple[type[BaseConvertor], dict]:
         """Resolve and return the registered convertor class and its configuration dictionary."""
-        connector_names = self._config.convertor.keys()
-        if len(connector_names) != 1:
-            raise OperationNotSupportedError("Only one convertor is supported.")
-
-        connector_name = next(iter(connector_names))
-        if connector_name not in self._convertors:
-            raise ArtifactNotFoundError(f"Convertor {connector_name} not found.")
-
-        return self._convertors[connector_name], self._config.convertor[connector_name]
+        return _get_artifact_factory(self._convertors, self._config.convertor, "convertor")

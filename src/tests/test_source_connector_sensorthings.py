@@ -19,6 +19,7 @@ from frost_sta_client import (
 from frost_sta_client.model.ext.entity_list import EntityList
 # isort: on
 
+from pipeline.error import SourceConnectorError
 from pipeline.models import (
     STConfig,
     STFeatureOfInterest,
@@ -475,17 +476,16 @@ async def test_sensorthings_fallback_entity_names(mock_sensorthings_service, moc
 
 @pytest.mark.asyncio
 async def test_sensorthings_service_error_handling(mock_sensorthings_service):
-    mock_sensorthings_service.get_things.side_effect = SensorThingsServiceError(
-        "Service unavailable"
-    )
+    with pytest.raises(SourceConnectorError):
+        mock_sensorthings_service.get_things.side_effect = SensorThingsServiceError(
+            "Service unavailable"
+        )
 
-    queue = asyncio.Queue()
-    connector = STConnector(queue, STConfig(host="localhost", port=8080, poll_interval_seconds=1))
-    await connector.run()
-
-    # Connector should have caught error and stopped without crashing
-    assert not connector._running
-    assert queue.qsize() == 0
+        queue = asyncio.Queue()
+        connector = STConnector(
+            queue, STConfig(host="localhost", port=8080, poll_interval_seconds=1)
+        )
+        await connector.run()
 
 
 @pytest.mark.asyncio

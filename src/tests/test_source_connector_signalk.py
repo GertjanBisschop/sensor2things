@@ -5,6 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from pipeline.error import SourceConnectorError
 from pipeline.models import (
     SKConfig,
     SKDelta,
@@ -16,6 +17,7 @@ from pipeline.models import (
     SKVessel,
 )
 from pipeline.source_connectors import SKConnector
+from pipeline.utils import SignalKRestAPIError
 
 
 @pytest.fixture
@@ -274,3 +276,13 @@ async def test_signalk_hello_process_deltas(
     verify_queue_item(item, SKUpdateType.DELTA, SKDelta)
     item = await queue.get()
     verify_queue_item(item, SKUpdateType.DELTA, SKDelta)
+
+
+@pytest.mark.asyncio
+async def test_signalk_rest_api_error_handling(mock_rest_api):
+    with pytest.raises(SourceConnectorError):
+        mock_rest_api.get_identity.side_effect = SignalKRestAPIError("Service unavailable")
+
+        queue = asyncio.Queue()
+        connector = SKConnector(queue, SKConfig(username="admin", password="admin"))
+        await connector.run()
