@@ -20,6 +20,7 @@ from frost_sta_client import (
 # isort: on
 from geojson import Point
 
+from pipeline.error import SinkConnectorError
 from pipeline.models import (
     BaseSinkConnector,
     STConfig,
@@ -116,7 +117,7 @@ class SensorThingsConnector(BaseSinkConnector[STConfig]):
             except asyncio.CancelledError:
                 break
             except (AttributeError, KeyError, ValueError, RuntimeError) as e:
-                logger.error(f"Error processing SensorThings sink payload: {e}")
+                raise SinkConnectorError(f"Error processing SensorThings sink payload: {e}")
         logger.info("SensorThings sink connector worker stopped.")
 
     async def stop(self) -> None:

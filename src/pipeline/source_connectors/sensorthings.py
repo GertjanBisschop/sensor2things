@@ -6,6 +6,7 @@ from datetime import datetime
 
 from frost_sta_client import Location, Thing
 
+from pipeline.error import SourceConnectorError
 from pipeline.models import (
     BaseSourceConnector,
     STConfig,
@@ -83,7 +84,7 @@ class SensorThingsConnector(BaseSourceConnector[STConfig]):
                 await asyncio.sleep(self._config.poll_interval_seconds)
                 await self._sync_things_states()
         except SensorThingsServiceError as e:
-            logger.error(f"SensorThings service Error: {e}")
+            raise SourceConnectorError(f"SensorThings service Error: {e}")
         except asyncio.CancelledError:
             logger.info("SensorThings source connector task was cancelled.")
         finally:

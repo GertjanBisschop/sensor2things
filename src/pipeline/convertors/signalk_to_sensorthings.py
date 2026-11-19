@@ -6,6 +6,7 @@ import uuid
 
 from pydantic import BaseModel
 
+from pipeline.error import ConvertorError
 from pipeline.models import (
     BaseConvertor,
     SK2STConfig,
@@ -98,7 +99,7 @@ class SignalKToSensorThingsConvertor(BaseConvertor[SK2STConfig]):
             except asyncio.CancelledError:
                 break
             except (AttributeError, KeyError, ValueError, RuntimeError) as e:
-                logger.error(f"Error during delta conversion: {e}")
+                raise ConvertorError(f"Error during delta conversion: {e}")
         logger.info("SignalK to SensorThings convertor worker stopped.")
 
     async def stop(self) -> None:

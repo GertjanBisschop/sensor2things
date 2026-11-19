@@ -8,6 +8,7 @@ from datetime import UTC, datetime, timedelta
 import websockets
 from pydantic import ValidationError
 
+from pipeline.error import SourceConnectorError
 from pipeline.models import (
     BaseSourceConnector,
     SKConfig,
@@ -104,11 +105,11 @@ class SignalKConnector(BaseSourceConnector[SKConfig]):
                             )
                         )
         except SignalKRestAPIError as e:
-            logger.error(f"SignalK REST API error: {e}")
+            raise SourceConnectorError(f"SignalK REST API error: {e}")
         except asyncio.CancelledError:
             logger.info("SignalK source connector task was cancelled.")
         except websockets.WebSocketException as e:
-            logger.error(f"WebSocket connection error: {e}")
+            raise SourceConnectorError(f"WebSocket connection error: {e}")
         finally:
             logger.info("SignalK source connector worker stopped")
             self._running = False
